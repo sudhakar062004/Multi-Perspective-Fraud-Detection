@@ -182,6 +182,18 @@ def ProcessMining(request):
                 
                 sc = StandardScaler()
                 X = sc.fit_transform(X)
+                
+        # Ensure sc and label_encoder are initialized for DetectFraud
+        prep_cache = "Dataset/model_preprocessors.pkl"
+        if os.path.exists(prep_cache) and (sc is None or len(label_encoder) == 0):
+            import pickle
+            try:
+                with open(prep_cache, 'rb') as f:
+                    prep = pickle.load(f)
+                    sc = prep.get('sc', sc)
+                    label_encoder = prep.get('label_encoder', label_encoder)
+            except Exception:
+                pass
         
         unique, count = np.unique(Y, return_counts=True)
         
@@ -231,21 +243,49 @@ def DetectFraud(request):
 def DetectFraudAction(request):
     if request.method == 'POST':
         global dataset, X, Y, sc, rf_cls, label_encoder
+        
+        # Ensure sc and label_encoder are initialized
+        if sc is None or len(label_encoder) == 0:
+            prep_cache = "Dataset/model_preprocessors.pkl"
+            if os.path.exists(prep_cache):
+                import pickle
+                try:
+                    with open(prep_cache, 'rb') as f:
+                        prep = pickle.load(f)
+                        sc = prep.get('sc', sc)
+                        label_encoder = prep.get('label_encoder', label_encoder)
+                except Exception:
+                    pass
+                    
         if rf_cls is None or sc is None:
             context = {'data': '<font color="red"><b>Model is not trained yet! Please run Process Mining and Run ML Algorithms first.</b></font>'}
             return render(request, 'UserScreen.html', context)
             
-        myfile = request.FILES.get('t1')
-        if not myfile:
-            return render(request, 'DetectFraud.html', {'data': 'Please choose a file to upload.'})
-            
-        os.makedirs("FraudApp/static", exist_ok=True)
-        test_file_path = "FraudApp/static/test_uploaded.csv"
-        with open(test_file_path, 'wb+') as dest:
-            for chunk in myfile.chunks():
-                dest.write(chunk)
+        test_source = request.POST.get('test_source', 'upload')
+        preset_map = {
+            'test_8': ('Dataset/testData.csv', 'Standard Test Dataset (8 Transactions)'),
+            'test_20': ('Dataset/test_sample_20_mixed.csv', 'Mixed Evaluation Batch (10 Normal + 10 Fraud)'),
+            'test_fraud': ('Dataset/sample_single_fraud_transaction.csv', 'Single Known Fraud Transaction'),
+            'test_normal': ('Dataset/sample_single_normal_transaction.csv', 'Single Known Normal Transaction'),
+        }
+        
+        if test_source in preset_map and os.path.exists(preset_map[test_source][0]):
+            test_file_path = preset_map[test_source][0]
+            source_label = preset_map[test_source][1]
+        else:
+            myfile = request.FILES.get('t1')
+            if not myfile:
+                return render(request, 'DetectFraud.html', {'data': 'Please choose a preset test dataset or upload a file.'})
+            os.makedirs("FraudApp/static", exist_ok=True)
+            test_file_path = "FraudApp/static/test_uploaded.csv"
+            with open(test_file_path, 'wb+') as dest:
+                for chunk in myfile.chunks():
+                    dest.write(chunk)
+            source_label = f"Uploaded File: {myfile.name}"
         
         test_df = pd.read_csv(test_file_path)
+        if 'isFraud' in test_df.columns:
+            test_df.drop(['isFraud'], axis=1, inplace=True)
         test_df = clean_df(test_df)
         temp = test_df.values
         
@@ -263,10 +303,13 @@ def DetectFraudAction(request):
         X_test = sc.transform(X_test)
         predict = rf_cls.predict(X_test)
         
+        n_fraud = int(np.sum(predict == 1))
+        n_normal = int(np.sum(predict == 0))
         output = '<div style="margin-bottom:15px;"><h3>Fraud Detection Results from Test Data</h3>'
-        output += f'<b>Total Transactions Tested:</b> {len(predict)} | '
-        output += f'<b>Normal:</b> {np.sum(predict == 0)} | '
-        output += f'<b>Fraudulent:</b> {np.sum(predict == 1)}</div>'
+        output += f'<b>Source:</b> {source_label} &nbsp;|&nbsp; '
+        output += f'<b>Total Transactions Tested:</b> {len(predict)} &nbsp;|&nbsp; '
+        output += f'<b>Normal:</b> <font color="green">{n_normal}</font> &nbsp;|&nbsp; '
+        output += f'<b>Fraudulent:</b> <font color="red">{n_fraud}</font></div>'
         output += '<table border=1 align=center width=100%><tr><th width="80%"><font color="black">Test Transaction Features</font></th><th><font color="black">Detection Result</font></th></tr>'
         for i in range(len(predict)):
             if predict[i] == 1:

@@ -4,23 +4,75 @@
 <title>E-commerce Fraud Transactions Detection</title>
 <meta http-equiv="content-type" content="text/html; charset=utf-8" />
 <link href="{% static 'style.css' %}" rel="stylesheet" type="text/css" />
+<style>
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.spinner-anim {
+  border: 5px solid #f3f3f3;
+  border-top: 5px solid #c80203;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px auto;
+}
+</style>
 <script language="javascript">
 	function validate(formObj)
 	{
-	if(formObj.t1.value.length==0)
-	{
-	alert("Please Upload Dataset File");
-	formObj.t1.focus();
-	return false;
+		var mode = "test_20";
+		for (var i = 0; i < formObj.test_source.length; i++) {
+			if (formObj.test_source[i].checked) {
+				mode = formObj.test_source[i].value;
+				break;
+			}
+		}
+		if (mode === "upload" && (!formObj.t1.value || formObj.t1.value.length == 0))
+		{
+			alert("Please choose a test CSV file to upload");
+			formObj.t1.focus();
+			return false;
+		}
+		showLoader("Detecting Fraud in Test Data...", "Running trained Extension Random Forest classifier over test transactions... Please wait...");
+		var btn = document.getElementById("submit_btn");
+		if (btn) {
+			btn.value = "⏳ Detecting... Please wait";
+			btn.disabled = true;
+		}
+		return true;
 	}
 	
-	formObj.actionUpdateData.value="update";
-	return true;
+	function toggleSource(mode) {
+		var uploadRow = document.getElementById("upload_row");
+		if (mode === "upload") {
+			uploadRow.style.display = "";
+		} else {
+			uploadRow.style.display = "none";
+		}
 	}
-	</script>
 	
+	function showLoader(title, msg) {
+		var overlay = document.getElementById("loadingOverlay");
+		if (overlay) {
+			document.getElementById("loadingTitle").innerText = title;
+			document.getElementById("loadingMsg").innerHTML = msg;
+			overlay.style.display = "flex";
+		}
+	}
+</script>
 </head>
 <body>
+<!-- Loading Modal Overlay -->
+<div id="loadingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.65); z-index:99999; justify-content:center; align-items:center; flex-direction:column; font-family:Arial, sans-serif;">
+  <div style="background:#fff; color:#333; padding:35px 45px; border-radius:12px; box-shadow:0 10px 35px rgba(0,0,0,0.4); text-align:center; max-width:480px;">
+    <div class="spinner-anim"></div>
+    <h3 id="loadingTitle" style="margin:0 0 10px 0; color:#c80203; font-size:20px;">Detecting Fraud...</h3>
+    <p id="loadingMsg" style="margin:0; font-size:14px; color:#555; line-height:1.5;">Please wait while the model evaluates transactions...</p>
+  </div>
+</div>
+
 <div class="main">
   <div class="main_resize">
     <div class="header">
@@ -32,31 +84,68 @@
       <div class="content_bg">
         <div class="menu_nav">
          <ul>      
-     <li><a href="{% url 'LoadDataset' %}"><font size="3" color="black">Load & Process Dataset</a></li>
-	 <li><a href="{% url 'ProcessMining' %}"><font size="3" color="black">Process Mining</a></li>
-	 <li><a href="{% url 'RunML' %}"><font size="3" color="black">Run ML Algorithms</a></li>
-	  <li><a href="{% url 'DetectFraud' %}"><font size="3" color="black">Detect Fraud</a></li>
-	 <li><a href="{% url 'index' %}"><font size="3" color="black">Logout</a></li>
+     <li><a href="{% url 'LoadDataset' %}" onclick="showLoader('Opening Dataset Loader', 'Preparing dataset loader view...');"><font size="3" color="black">Load & Process Dataset</font></a></li>
+	 <li><a href="{% url 'ProcessMining' %}" onclick="showLoader('Running Process Mining...', 'Computing 2D PCA user behaviour projection across transactions... Please wait...');"><font size="3" color="black">Process Mining</font></a></li>
+	 <li><a href="{% url 'RunML' %}" onclick="showLoader('Training ML Algorithms...', 'Fitting Proposed Polynomial SVM and Extension Random Forest on the dataset... Please wait...');"><font size="3" color="black">Run ML Algorithms</font></a></li>
+	  <li><a href="{% url 'DetectFraud' %}"><font size="3" color="black">Detect Fraud</font></a></li>
+	 <li><a href="{% url 'index' %}"><font size="3" color="black">Logout</font></a></li>
    </ul>          
         </div>
         <div class="hbg"><img src="{% static 'images/header_images.jpg' %}" width="915" height="286" alt="" /></div>
       				<center>
-<form name="f1" method="post" action={% url 'DetectFraudAction' %} enctype="multipart/form-data" onsubmit="return validate(this);">
+<form name="f1" method="post" action="{% url 'DetectFraudAction' %}" enctype="multipart/form-data" onsubmit="return validate(this);">
 {% csrf_token %}<br/>
    <h2><b>Detect Fraud Module from Test Data</b></h2>
    
 	<font size="" color="red"><center>{{ data }}</center></font>
 						
-						<table align="center" width="30%" >
-			 <tr><td><font size='' color="black"><b>Upload&nbsp;Test&nbsp;Data</b></td>
-			 <td><input type="file" name="t1" style="font-family: Comic Sans MS" size="25"></td></tr>
-         
-		 	<tr><td></td><td><input type="submit" value="Submit"></td>
-			</table>
+	<table align="center" width="70%" style="border:1px solid #ccc; background:#fafafa; padding:18px; border-radius:8px; box-shadow: 0 2px 6px rgba(0,0,0,0.06);">
+		<tr>
+			<td width="30%" valign="top"><font size="3" color="black"><b>Select Test Data:</b></font></td>
+			<td>
+				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px; background:#fff; padding:10px; border:1px solid #ddd; border-radius:5px;">
+					<input type="radio" name="test_source" value="test_20" checked onclick="toggleSource('test_20');">
+					<b style="color:#c80203; font-size:14px;">Recommended: Mixed Batch (20 Transactions: 10 Normal + 10 Fraud)</b><br/>
+					<span style="color:#666; font-size:12px; margin-left:22px;">&bull; Best for faculty demo to show detection of both Normal & Fraud cases (<i>Dataset/test_sample_20_mixed.csv</i>)</span>
+				</label>
+				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px; background:#fff; padding:10px; border:1px solid #ddd; border-radius:5px;">
+					<input type="radio" name="test_source" value="test_8" onclick="toggleSource('test_8');">
+					<b style="font-size:14px;">Standard Test Batch (8 Transactions)</b><br/>
+					<span style="color:#666; font-size:12px; margin-left:22px;">&bull; Default project test file (<i>Dataset/testData.csv</i>)</span>
+				</label>
+				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px; background:#fff; padding:10px; border:1px solid #ddd; border-radius:5px;">
+					<input type="radio" name="test_source" value="test_fraud" onclick="toggleSource('test_fraud');">
+					<b style="font-size:14px;">Single Known Fraud Transaction</b><br/>
+					<span style="color:#666; font-size:12px; margin-left:22px;">&bull; Confirmed fraudulent transaction (<i>Dataset/sample_single_fraud_transaction.csv</i>)</span>
+				</label>
+				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px; background:#fff; padding:10px; border:1px solid #ddd; border-radius:5px;">
+					<input type="radio" name="test_source" value="test_normal" onclick="toggleSource('test_normal');">
+					<b style="font-size:14px;">Single Known Normal Transaction</b><br/>
+					<span style="color:#666; font-size:12px; margin-left:22px;">&bull; Confirmed legitimate transaction (<i>Dataset/sample_single_normal_transaction.csv</i>)</span>
+				</label>
+				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px; background:#fff; padding:10px; border:1px solid #ddd; border-radius:5px;">
+					<input type="radio" name="test_source" value="upload" onclick="toggleSource('upload');">
+					<b style="font-size:14px;">Upload Custom Test CSV File from Computer</b><br/>
+					<span style="color:#666; font-size:12px; margin-left:22px;">&bull; Select any CSV file from your computer (e.g. <i>Dataset/test_transaction.csv</i>)</span>
+				</label>
+			</td>
+		</tr>
+		<tr id="upload_row" style="display:none;">
+			<td><font size="3" color="black"><b>Choose File:</b></font></td>
+			<td><input type="file" name="t1" style="padding:6px;" size="30"></td>
+		</tr>
+		<tr>
+			<td></td>
+			<td style="padding-top:16px;">
+				<input type="submit" id="submit_btn" value="Detect Fraud" style="background:#c80203; color:#fff; border:none; padding:10px 28px; font-weight:bold; font-size:14px; border-radius:4px; cursor:pointer;">
+			</td>
+		</tr>
+	</table>
+</form>
+</center>
 				</div>	
-					
-				</div>
-				
-					
-	</body>
+			</div>
+		</div>
+	</div>
+</body>
 </html>
