@@ -30,5 +30,9 @@ Dataset/train_identity.csv
 Dataset/test_identity.csv
 Dataset/sample_submission.csv
 Dataset/test_pca_590k.png
+Dataset/*.pkl
+Dataset/*.npz
+Dataset/*.parquet
+
 
 

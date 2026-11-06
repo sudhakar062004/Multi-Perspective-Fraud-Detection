@@ -4,8 +4,42 @@
 <title>E-commerce Fraud Transactions Detection</title>
 <meta http-equiv="content-type" content="text/html; charset=utf-8" />
 <link href="{% static 'style.css' %}" rel="stylesheet" type="text/css" />
+<style>
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.spinner-anim {
+  border: 5px solid #f3f3f3;
+  border-top: 5px solid #c80203;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px auto;
+}
+</style>
+<script language="javascript">
+	function showLoader(title, msg) {
+		var overlay = document.getElementById("loadingOverlay");
+		if (overlay) {
+			document.getElementById("loadingTitle").innerText = title;
+			document.getElementById("loadingMsg").innerHTML = msg;
+			overlay.style.display = "flex";
+		}
+	}
+</script>
 </head>
 <body>
+<!-- Loading Modal Overlay -->
+<div id="loadingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.65); z-index:99999; justify-content:center; align-items:center; flex-direction:column; font-family:Arial, sans-serif;">
+  <div style="background:#fff; color:#333; padding:35px 45px; border-radius:12px; box-shadow:0 10px 35px rgba(0,0,0,0.4); text-align:center; max-width:480px;">
+    <div class="spinner-anim"></div>
+    <h3 id="loadingTitle" style="margin:0 0 10px 0; color:#c80203; font-size:20px;">Processing...</h3>
+    <p id="loadingMsg" style="margin:0; font-size:14px; color:#555; line-height:1.5;">Please wait while the operation finishes...</p>
+  </div>
+</div>
+
 <div class="main">
   <div class="main_resize">
     <div class="header">
@@ -17,11 +51,11 @@
       <div class="content_bg">
         <div class="menu_nav">
          <ul>      
-     <li><a href="{% url 'LoadDataset' %}"><font size="3" color="black">Load & Process Dataset</a></li>
-	 <li><a href="{% url 'ProcessMining' %}"><font size="3" color="black">Process Mining</a></li>
-	 <li><a href="{% url 'RunML' %}"><font size="3" color="black">Run ML Algorithms</a></li>
-	  <li><a href="{% url 'DetectFraud' %}"><font size="3" color="black">Detect Fraud</a></li>
-	 <li><a href="{% url 'index' %}"><font size="3" color="black">Logout</a></li>
+     <li><a href="{% url 'LoadDataset' %}" onclick="showLoader('Opening Dataset Loader', 'Preparing dataset loader view...');"><font size="3" color="black">Load & Process Dataset</font></a></li>
+	 <li><a href="{% url 'ProcessMining' %}" onclick="showLoader('Running Process Mining...', 'Computing 2D PCA user behaviour projection across 590,540 transactions... Please wait...');"><font size="3" color="black">Process Mining</font></a></li>
+	 <li><a href="{% url 'RunML' %}" onclick="showLoader('Training ML Algorithms...', 'Fitting Proposed Polynomial SVM and Extension Random Forest on the dataset... Please wait...');"><font size="3" color="black">Run ML Algorithms</font></a></li>
+	  <li><a href="{% url 'DetectFraud' %}"><font size="3" color="black">Detect Fraud</font></a></li>
+	 <li><a href="{% url 'index' %}"><font size="3" color="black">Logout</font></a></li>
    </ul>          
         </div>
         <div class="hbg"><img src="{% static 'images/header_images.jpg' %}" width="915" height="286" alt="" /></div>

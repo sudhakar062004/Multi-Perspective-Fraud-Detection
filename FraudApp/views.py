@@ -130,7 +130,10 @@ def ProcessMining(request):
     if request.method == 'GET':
         global dataset, X, Y, labels, unique, label_encoder, sc, pca
         if dataset is None:
-            if os.path.exists("Dataset/train_transaction.csv"):
+            pkl_path = "Dataset/train_transaction.pkl"
+            if os.path.exists(pkl_path):
+                dataset = pd.read_pickle(pkl_path)
+            elif os.path.exists("Dataset/train_transaction.csv"):
                 dataset = pd.read_csv("Dataset/train_transaction.csv")
             elif os.path.exists("FraudApp/static/Data.csv"):
                 dataset = pd.read_csv("FraudApp/static/Data.csv")
@@ -140,39 +143,45 @@ def ProcessMining(request):
                 context = {'data': '<font color="red"><b>No dataset loaded. Please load a dataset first.</b></font>'}
                 return render(request, 'UserScreen.html', context)
         
-        if 'isFraud' not in dataset.columns:
-            if os.path.exists("Dataset/train_transaction.csv"):
-                dataset = pd.read_csv("Dataset/train_transaction.csv")
-            else:
-                context = {'data': '<font color="red"><b>Dataset does not contain required isFraud column. Please reload dataset.</b></font>'}
-                return render(request, 'UserScreen.html', context)
+        if 'isFraud' not in dataset.columns and Y is None:
+            context = {'data': '<font color="red"><b>Dataset does not contain required isFraud column. Please reload dataset.</b></font>'}
+            return render(request, 'UserScreen.html', context)
         
         total_rows = len(dataset)
-        df = dataset.copy()
-        df = clean_df(df)
-        Y = df['isFraud'].values.ravel()
-        df.drop(['isFraud'], axis=1, inplace=True)
         
-        label_encoder = []
-        columns = df.columns
-        types = df.dtypes.values
-        for i in range(len(types)):
-            name = types[i]
-            if name == 'object' or str(name).startswith('str'):
-                le = LabelEncoder()
-                df[columns[i]] = le.fit_transform(df[columns[i]].astype(str))
-                label_encoder.append([columns[i], le])
+        # Fast path: use cached or precomputed feature matrices if available
+        if X is None or Y is None:
+            npz_cache = "Dataset/train_transaction_processed.npz"
+            if total_rows > 500000 and os.path.exists(npz_cache):
+                cached = np.load(npz_cache)
+                X = cached['X']
+                Y = cached['Y']
+            else:
+                df = dataset.copy()
+                df = clean_df(df)
+                Y = df['isFraud'].values.ravel()
+                df.drop(['isFraud'], axis=1, inplace=True)
                 
-        df = clean_df(df)
-        X = df.values
-        indices = np.arange(X.shape[0])
-        np.random.seed(42)
-        np.random.shuffle(indices)
-        X = X[indices]
-        Y = Y[indices]
-        
-        sc = StandardScaler()
-        X = sc.fit_transform(X)
+                label_encoder = []
+                columns = df.columns
+                types = df.dtypes.values
+                for i in range(len(types)):
+                    name = types[i]
+                    if name == 'object' or str(name).startswith('str'):
+                        le = LabelEncoder()
+                        df[columns[i]] = le.fit_transform(df[columns[i]].astype(str))
+                        label_encoder.append([columns[i], le])
+                        
+                df = clean_df(df)
+                X = df.values
+                indices = np.arange(X.shape[0])
+                np.random.seed(42)
+                np.random.shuffle(indices)
+                X = X[indices]
+                Y = Y[indices]
+                
+                sc = StandardScaler()
+                X = sc.fit_transform(X)
         
         unique, count = np.unique(Y, return_counts=True)
         
@@ -279,16 +288,37 @@ def LoadDatasetAction(request):
         save_path = "FraudApp/static/Data.csv"
         
         if source == 'full_500k':
+            pkl_path = "Dataset/train_transaction.pkl"
             csv_path = "Dataset/train_transaction.csv"
-            if not os.path.exists(csv_path):
+            npz_path = "Dataset/train_transaction_processed.npz"
+            if os.path.exists(pkl_path):
+                dataset = pd.read_pickle(pkl_path)
+            elif os.path.exists(csv_path):
+                dataset = pd.read_csv(csv_path)
+                dataset = clean_df(dataset)
+                try:
+                    dataset.to_pickle(pkl_path)
+                except Exception:
+                    pass
+            else:
                 return render(request, 'LoadDataset.html', {'data': f'Error: {csv_path} not found.'})
-            dataset = pd.read_csv(csv_path)
+            
+            # Preload prepared matrices for instant ProcessMining and RunML
+            if os.path.exists(npz_path):
+                try:
+                    cached = np.load(npz_path)
+                    X = cached['X']
+                    Y = cached['Y']
+                except Exception:
+                    pass
             source_name = "Full Benchmark Dataset (Dataset/train_transaction.csv)"
         elif source == 'sample_1k':
             csv_path = "Dataset/Fraud_transaction.csv"
             if not os.path.exists(csv_path):
                 return render(request, 'LoadDataset.html', {'data': f'Error: {csv_path} not found.'})
             dataset = pd.read_csv(csv_path)
+            X = None
+            Y = None
             source_name = "Sample Dataset (Dataset/Fraud_transaction.csv)"
         else:
             myfile = request.FILES.get('t1')
@@ -298,6 +328,8 @@ def LoadDatasetAction(request):
                 for chunk in myfile.chunks():
                     dest.write(chunk)
             dataset = pd.read_csv(save_path)
+            X = None
+            Y = None
             source_name = f"Uploaded File: {myfile.name}"
         
         total_rows = dataset.shape[0]
