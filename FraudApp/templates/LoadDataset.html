@@ -7,18 +7,30 @@
 <script language="javascript">
 	function validate(formObj)
 	{
-	if(formObj.t1.value.length==0)
-	{
-	alert("Please Upload Dataset File");
-	formObj.t1.focus();
-	return false;
+		var mode = "full_500k";
+		for (var i = 0; i < formObj.dataset_source.length; i++) {
+			if (formObj.dataset_source[i].checked) {
+				mode = formObj.dataset_source[i].value;
+				break;
+			}
+		}
+		if (mode === "upload" && (!formObj.t1.value || formObj.t1.value.length == 0))
+		{
+			alert("Please choose a CSV file to upload");
+			formObj.t1.focus();
+			return false;
+		}
+		return true;
 	}
-	
-	formObj.actionUpdateData.value="update";
-	return true;
+	function toggleSource(mode) {
+		var uploadRow = document.getElementById("upload_row");
+		if (mode === "upload") {
+			uploadRow.style.display = "";
+		} else {
+			uploadRow.style.display = "none";
+		}
 	}
-	</script>
-	
+</script>
 </head>
 <body>
 <div class="main">
@@ -41,22 +53,44 @@
         </div>
         <div class="hbg"><img src="{% static 'images/header_images.jpg' %}" width="915" height="286" alt="" /></div>
       				<center>
-<form name="f1" method="post" action={% url 'LoadDatasetAction' %} enctype="multipart/form-data" onsubmit="return validate(this);">
+<form name="f1" method="post" action="{% url 'LoadDatasetAction' %}" enctype="multipart/form-data" onsubmit="return validate(this);">
 {% csrf_token %}<br/>
-   <h2><b>Dataset Loader Module</b></h2>
+   <h2><b>Dataset Loader & Preprocessing Module</b></h2>
    
 	<font size="" color="red"><center>{{ data }}</center></font>
 						
-						<table align="center" width="30%" >
-			 <tr><td><font size='' color="black"><b>Browse&nbsp;Dataset</b></td>
-			 <td><input type="file" name="t1" style="font-family: Comic Sans MS" size="25"></td></tr>
-         
-		 	<tr><td></td><td><input type="submit" value="Submit"></td>
-			</table>
+	<table align="center" width="65%" style="border:1px solid #ccc; background:#fafafa; padding:15px; border-radius:6px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+		<tr>
+			<td width="35%" valign="top"><font size="3" color="black"><b>Select Dataset:</b></font></td>
+			<td>
+				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px;">
+					<input type="radio" name="dataset_source" value="full_500k" checked onclick="toggleSource('full_500k');">
+					<b style="color:#c80203;">Full Benchmark Dataset (590,540 rows)</b> &mdash; <i>Dataset/train_transaction.csv</i>
+				</label>
+				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px;">
+					<input type="radio" name="dataset_source" value="sample_1k" onclick="toggleSource('sample_1k');">
+					<b>Sample Dataset (1,100 rows)</b> &mdash; <i>Dataset/Fraud_transaction.csv</i>
+				</label>
+				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px;">
+					<input type="radio" name="dataset_source" value="upload" onclick="toggleSource('upload');">
+					<b>Upload Custom CSV File from Computer</b>
+				</label>
+			</td>
+		</tr>
+		<tr id="upload_row" style="display:none;">
+			<td><font size="3" color="black"><b>Choose File:</b></font></td>
+			<td><input type="file" name="t1" style="font-family: Comic Sans MS; padding:5px;" size="30"></td>
+		</tr>
+		<tr>
+			<td></td>
+			<td style="padding-top:14px;"><input type="submit" value="Load & Process Dataset" style="padding:9px 26px; font-weight:bold; cursor:pointer;"></td>
+		</tr>
+	</table>
+</form>
+</center>
 				</div>	
-					
-				</div>
-				
-					
-	</body>
+			</div>
+		</div>
+	</div>
+</body>
 </html>

@@ -120,7 +120,53 @@ python test.py
 2. Click **User Login**, enter:
    - **Username**: `admin`
    - **Password**: `admin`
-3. Click **Load & Process Dataset** and browse to select `Dataset/Fraud_transaction.csv`.
+3. Click **Load & Process Dataset**:
+   - Choose **Full Benchmark Dataset (590,540 rows)** &mdash; `Dataset/train_transaction.csv`
+   - Or choose **Sample Dataset (1,100 rows)** &mdash; `Dataset/Fraud_transaction.csv`
+   - Click **Load & Process Dataset**
 4. Click **Process Mining** to generate and view the 2D PCA User Behaviour Graph.
 5. Click **Run ML Algorithms** to train the Proposed SVM and Extension Random Forest models and inspect comparative accuracy metrics and performance graphs.
-6. Click **Detect Fraud**, upload `Dataset/testData.csv`, and submit to see real-time classification predictions (**Normal** / **Fraud**) for each transaction.
+6. Click **Detect Fraud**, upload `sample_single_normal_transaction.csv` or `sample_single_fraud_transaction.csv`, and submit to see real-time classification predictions (**Normal** / **Fraud**) for each transaction.
+
+---
+
+## Full 590,540 Rows Benchmark Evaluation Results
+
+To comprehensively evaluate the multi-perspective fraud detection system on industrial-scale big data, the system was benchmarked across the entire IEEE-CIS dataset (**590,540 transactions with 393 attributes**).
+
+### 1. Dataset Breakdown
+- **Total Records:** 590,540
+- **Normal Transactions (Class 0):** 569,877 (96.50%)
+- **Fraudulent Transactions (Class 1):** 20,663 (3.50%)
+- **Training Set (80%):** 472,432 transactions
+- **Testing Set (20%):** 118,108 transactions
+
+### 2. Comparative Algorithm Performance
+| Metric | Proposed SVM (Polynomial Degree-3) | Extension Random Forest (Full 590k Dataset) |
+| :--- | :---: | :---: |
+| **Accuracy** | 96.80% | **97.71%** |
+| **Precision** | 45.83% | **93.49%** |
+| **Recall** | 17.74% | **37.16%** |
+| **F1-Score** | 25.58% | **53.19%** |
+| **ROC-AUC Score** | 71.64% | **90.93%** |
+| **Training Time** | O(N²) quadratic scaling | **30.22s (Multi-core Parallel Bagging)** |
+
+### 3. Confusion Matrix on 118,108 Test Transactions
+```
+                      Predicted Normal    Predicted Fraud
+Actual Normal (0)          113,868               107
+Actual Fraud  (1)            2,597             1,536
+```
+- **False Positive Rate:** Only 0.09% (107 false alarms out of 113,975 genuine transactions)
+- **High Precision:** 93.49% of flagged transactions are genuine fraud cases.
+
+### 4. Running the Standalone 500k Evaluation Script
+```bash
+python evaluate_500k.py
+```
+This automatically produces 4 publication-quality evaluation graphs:
+1. `full_500k_pca_process_mining.png` (PCA Behavioral Graph on 590k rows)
+2. `full_500k_metrics_comparison.png` (Algorithm Comparative Bar Chart)
+3. `full_500k_roc_curve.png` (ROC-AUC Curve)
+4. `full_500k_confusion_matrix.png` (Heatmap Confusion Matrix)
+

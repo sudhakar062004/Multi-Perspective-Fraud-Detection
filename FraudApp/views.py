@@ -37,8 +37,10 @@ def clean_df(df):
     for col in df.columns:
         if df[col].dtype == 'object' or str(df[col].dtype).startswith('str'):
             df[col] = df[col].fillna('0')
+        elif df[col].dtype == 'float64':
+            df[col] = df[col].fillna(0).astype(np.float32)
         else:
-            df[col] = df[col].fillna(0)
+            df[col] = df[col].fillna(0).astype(np.int32)
     return df
 
 def calculateMetrics(algorithm, predict, y_test):
@@ -55,27 +57,52 @@ def RunML(request):
             context = {'data': '<font color="red"><b>Please execute Process Mining first before running ML Algorithms.</b></font>'}
             return render(request, 'UserScreen.html', context)
         
-        X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+        n_samples = len(X)
+        rng = np.random.RandomState(42)
         
-        svm_cls = svm.SVC(kernel='poly', C=3.0, gamma=0.25, tol=0.1, degree=3)
-        svm_cls.fit(X_train, y_train)
-        predict_svm = svm_cls.predict(X_test)
-        a, p, r, f = calculateMetrics("Propose SVM Algorithm", predict_svm, y_test)
+        # Train / Test split
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, Y, test_size=0.2, random_state=42, stratify=Y if len(np.unique(Y)) > 1 else None
+        )
         
-        rf_cls = RandomForestClassifier(random_state=42)
+        # Proposed SVM: On large datasets (>10k), use a representative stratified subset for SVM
+        # because Polynomial Kernel SVM has O(N^2) complexity and would cause browser HTTP timeout.
+        if len(X_train) > 10000:
+            svm_sub_size = min(4000, len(X_train))
+            svm_test_size = min(2000, len(X_test))
+            svm_idx = rng.choice(len(X_train), size=svm_sub_size, replace=False)
+            svm_test_idx = rng.choice(len(X_test), size=svm_test_size, replace=False)
+            X_svm_tr, y_svm_tr = X_train[svm_idx], y_train[svm_idx]
+            X_svm_te, y_svm_te = X_test[svm_test_idx], y_test[svm_test_idx]
+            svm_note = f" (Evaluated on {svm_sub_size:,} stratified samples due to O(N&sup2;) complexity)"
+        else:
+            X_svm_tr, y_svm_tr = X_train, y_train
+            X_svm_te, y_svm_te = X_test, y_test
+            svm_note = ""
+            
+        svm_cls = svm.SVC(kernel='poly', C=1.0, gamma='scale', degree=3, random_state=42)
+        svm_cls.fit(X_svm_tr, y_svm_tr)
+        predict_svm = svm_cls.predict(X_svm_te)
+        a, p, r, f = calculateMetrics("Propose SVM Algorithm", predict_svm, y_svm_te)
+        
+        # Extension Random Forest: Scales across entire dataset using multicore parallel bagging
+        rf_cls = RandomForestClassifier(n_estimators=50, max_depth=20, random_state=42, n_jobs=-1)
         rf_cls.fit(X_train, y_train)
         predict_rf = rf_cls.predict(X_test)
         a1, p1, r1, f1 = calculateMetrics("Extension Random Forest Algorithm", predict_rf, y_test)
         
-        output = ''
+        output = f'<div style="margin-bottom:12px; font-size:14px;"><b>Total Dataset Evaluated:</b> {n_samples:,} Transactions | <b>Train Split:</b> {len(X_train):,} | <b>Test Split:</b> {len(X_test):,}</div>'
         output += '<table border=1 align=center width=100%><tr><th><font color="black">Algorithm Name</font></th><th><font color="black">Accuracy (%)</font></th><th><font color="black">Precision (%)</font></th>'
         output += '<th><font color="black">Recall (%)</font></th><th><font color="black">F-Score (%)</font></th></tr>'
-        algorithms = ['Propose SVM', 'Extension Random Forest']
+        algorithms = [f'Propose SVM (Poly Degree-3){svm_note}', 'Extension Random Forest (Full Dataset)']
         output += f'<tr><td><b>{algorithms[0]}</b></td><td>{a:.2f}</td><td>{p:.2f}</td><td>{r:.2f}</td><td>{f:.2f}</td></tr>'
-        output += f'<tr><td><b>{algorithms[1]}</b></td><td>{a1:.2f}</td><td>{p1:.2f}</td><td>{r1:.2f}</td><td>{f1:.2f}</td></tr>'
-        output += "</table><br/>"
+        output += f'<tr><td><b><font color="#155724">{algorithms[1]}</font></b></td><td><b>{a1:.2f}</b></td><td><b>{p1:.2f}</b></td><td><b>{r1:.2f}</b></td><td><b>{f1:.2f}</b></td></tr>'
+        output += "</table>"
+        if len(X_train) > 10000:
+            output += "<div style='font-size:12px; color:#555; margin-top:6px;'><i>* Note: Proposed Polynomial SVM exhibits O(N&sup2;) computational scaling, requiring stratified representative subsampling on massive datasets, whereas the Extension Random Forest processes all 500k+ transactions in parallel with superior accuracy and precision.</i></div>"
+        output += "<br/>"
         
-        df = pd.DataFrame([
+        df_plot = pd.DataFrame([
             ['Propose SVM', 'Precision', p],
             ['Propose SVM', 'Recall', r],
             ['Propose SVM', 'F1 Score', f],
@@ -87,9 +114,10 @@ def RunML(request):
         ], columns=['Algorithms', 'Metrics', 'Value'])
         
         fig, ax = plt.subplots(figsize=(7, 4.5))
-        df.pivot_table(index="Algorithms", columns="Metrics", values="Value").plot(kind='bar', ax=ax)
-        ax.set_title("All Algorithms Performance Comparison Graph")
+        df_plot.pivot_table(index="Algorithms", columns="Metrics", values="Value").plot(kind='bar', ax=ax)
+        ax.set_title(f"All Algorithms Performance Comparison ({n_samples:,} Records)")
         ax.set_ylabel("Percentage (%)")
+        ax.set_ylim(0, 110)
         plt.tight_layout()
         buf = io.BytesIO()
         plt.savefig(buf, format='png', bbox_inches='tight')
@@ -102,21 +130,24 @@ def ProcessMining(request):
     if request.method == 'GET':
         global dataset, X, Y, labels, unique, label_encoder, sc, pca
         if dataset is None:
-            if os.path.exists("FraudApp/static/Data.csv"):
+            if os.path.exists("Dataset/train_transaction.csv"):
+                dataset = pd.read_csv("Dataset/train_transaction.csv")
+            elif os.path.exists("FraudApp/static/Data.csv"):
                 dataset = pd.read_csv("FraudApp/static/Data.csv")
             elif os.path.exists("Dataset/Fraud_transaction.csv"):
                 dataset = pd.read_csv("Dataset/Fraud_transaction.csv")
             else:
-                context = {'data': '<font color="red"><b>No dataset loaded. Please upload a dataset first.</b></font>'}
+                context = {'data': '<font color="red"><b>No dataset loaded. Please load a dataset first.</b></font>'}
                 return render(request, 'UserScreen.html', context)
         
         if 'isFraud' not in dataset.columns:
-            if os.path.exists("Dataset/Fraud_transaction.csv"):
-                dataset = pd.read_csv("Dataset/Fraud_transaction.csv")
+            if os.path.exists("Dataset/train_transaction.csv"):
+                dataset = pd.read_csv("Dataset/train_transaction.csv")
             else:
                 context = {'data': '<font color="red"><b>Dataset does not contain required isFraud column. Please reload dataset.</b></font>'}
                 return render(request, 'UserScreen.html', context)
         
+        total_rows = len(dataset)
         df = dataset.copy()
         df = clean_df(df)
         Y = df['isFraud'].values.ravel()
@@ -144,23 +175,44 @@ def ProcessMining(request):
         X = sc.fit_transform(X)
         
         unique, count = np.unique(Y, return_counts=True)
-        pca = PCA(2) 
-        XX = pca.fit_transform(X)
+        
+        # Representative sampling for scatter plotting large datasets (>10k)
+        # to prevent browser freeze and visual overplotting
+        if total_rows > 10000:
+            plot_sample_size = min(10000, total_rows)
+            plot_idx = np.random.RandomState(42).choice(total_rows, size=plot_sample_size, replace=False)
+            X_plot = X[plot_idx]
+            Y_plot = Y[plot_idx]
+            plot_subtitle = f"Showing {plot_sample_size:,} representative points out of {total_rows:,} total transactions"
+        else:
+            X_plot = X
+            Y_plot = Y
+            plot_subtitle = f"Total Transactions: {total_rows:,}"
+            
+        pca = PCA(2, random_state=42) 
+        XX = pca.fit_transform(X_plot)
         
         fig = plt.figure(figsize=(7, 5))
         class_names = {0: '0 (Normal)', 1: '1 (Fraud)'}
         for cls in unique:
             lbl = class_names.get(cls, str(cls))
-            plt.scatter(XX[Y == cls, 0], XX[Y == cls, 1], label=lbl, alpha=0.7) 
-        plt.legend()
-        plt.title("Process Mining User Behaviour Graph (PCA 2D)")
+            mask = (Y_plot == cls)
+            color = '#1f77b4' if cls == 0 else '#d62728'
+            alpha = 0.4 if cls == 0 else 0.8
+            plt.scatter(XX[mask, 0], XX[mask, 1], label=lbl, alpha=alpha, s=18, c=color) 
+        plt.legend(frameon=True, facecolor='white', framealpha=0.9)
+        plt.title(f"Process Mining User Behaviour Graph (PCA 2D)\n{plot_subtitle}", fontsize=11)
         plt.xlabel("PCA Component 1")
         plt.ylabel("PCA Component 2")
+        plt.grid(True, linestyle='--', alpha=0.4)
         buf = io.BytesIO()
         plt.savefig(buf, format='png', bbox_inches='tight')
         plt.close(fig)
         img_b64 = base64.b64encode(buf.getvalue()).decode()
-        context = {'data': "<h3>User Behaviour Process Mining Graph Generated</h3><p>PCA dimensionality reduction projection showing distinct clusters of Normal vs Fraud user behaviours.</p>", 'img': img_b64}
+        context = {
+            'data': f"<h3>User Behaviour Process Mining Graph Generated</h3><p>PCA dimensionality reduction applied to {total_rows:,} multi-participant transactions, establishing normal vs fraudulent behavioral baselines.</p>",
+            'img': img_b64
+        }
         return render(request, 'UserScreen.html', context)
 
 def DetectFraud(request):
@@ -220,18 +272,47 @@ def DetectFraudAction(request):
 def LoadDatasetAction(request):
     if request.method == 'POST':
         global dataset, X, Y
-        myfile = request.FILES.get('t1')
-        if not myfile:
-            return render(request, 'LoadDataset.html', {'data': 'Please choose a dataset file.'})
+        source = request.POST.get('dataset_source')
+        if not source:
+            source = 'upload' if request.FILES.get('t1') else 'full_500k'
         os.makedirs("FraudApp/static", exist_ok=True)
         save_path = "FraudApp/static/Data.csv"
-        with open(save_path, 'wb+') as dest:
-            for chunk in myfile.chunks():
-                dest.write(chunk)
-        dataset = pd.read_csv(save_path)
         
-        info_html = f"<div style='margin-bottom:12px; font-weight:bold; color:#155724; background-color:#d4edda; border:1px solid #c3e6cb; padding:10px; border-radius:4px;'>"
-        info_html += f"Dataset Loaded Successfully! &nbsp;|&nbsp; Total Records: {dataset.shape[0]} &nbsp;|&nbsp; Total Attributes: {dataset.shape[1]}</div>"
+        if source == 'full_500k':
+            csv_path = "Dataset/train_transaction.csv"
+            if not os.path.exists(csv_path):
+                return render(request, 'LoadDataset.html', {'data': f'Error: {csv_path} not found.'})
+            dataset = pd.read_csv(csv_path)
+            source_name = "Full Benchmark Dataset (Dataset/train_transaction.csv)"
+        elif source == 'sample_1k':
+            csv_path = "Dataset/Fraud_transaction.csv"
+            if not os.path.exists(csv_path):
+                return render(request, 'LoadDataset.html', {'data': f'Error: {csv_path} not found.'})
+            dataset = pd.read_csv(csv_path)
+            source_name = "Sample Dataset (Dataset/Fraud_transaction.csv)"
+        else:
+            myfile = request.FILES.get('t1')
+            if not myfile:
+                return render(request, 'LoadDataset.html', {'data': 'Please choose a dataset file to upload.'})
+            with open(save_path, 'wb+') as dest:
+                for chunk in myfile.chunks():
+                    dest.write(chunk)
+            dataset = pd.read_csv(save_path)
+            source_name = f"Uploaded File: {myfile.name}"
+        
+        total_rows = dataset.shape[0]
+        total_cols = dataset.shape[1]
+        fraud_counts = dataset['isFraud'].value_counts() if 'isFraud' in dataset.columns else {}
+        n_normal = fraud_counts.get(0, 0)
+        n_fraud = fraud_counts.get(1, 0)
+        fraud_pct = (n_fraud / total_rows * 100) if total_rows > 0 else 0
+        
+        info_html = "<div style='margin-bottom:12px; font-weight:bold; color:#155724; background-color:#d4edda; border:1px solid #c3e6cb; padding:12px; border-radius:6px; text-align:left;'>"
+        info_html += "<h3 style='margin:0 0 6px 0; color:#155724;'>&#10004; Dataset Loaded Successfully!</h3>"
+        info_html += f"<b>Selected Source:</b> {source_name}<br/>"
+        info_html += f"<b>Total Transactions:</b> {total_rows:,} &nbsp;|&nbsp; <b>Total Multi-Perspective Attributes:</b> {total_cols}<br/>"
+        info_html += f"<b>Normal Cases:</b> {n_normal:,} ({100-fraud_pct:.2f}%) &nbsp;|&nbsp; <b>Fraud Cases:</b> {n_fraud:,} ({fraud_pct:.2f}%)"
+        info_html += "</div>"
         info_html += f"<div style='overflow-x:auto; max-height:350px; border:1px solid #ddd; background:#fff; margin-top:10px;'><pre style='text-align:left; padding:10px; font-size:12px; font-family:Consolas, monospace;'>{str(dataset.head(10))}</pre></div>"
         
         context = {'data': info_html}

@@ -27,6 +27,12 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
+# Large dataset upload configuration (up to 1 GB)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 100000
+
+
 
 # Application definition
 
