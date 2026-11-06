@@ -245,17 +245,20 @@ def DetectFraudAction(request):
         global dataset, X, Y, sc, rf_cls, label_encoder
         
         # Ensure sc and label_encoder are initialized
-        if sc is None or len(label_encoder) == 0:
-            prep_cache = "Dataset/model_preprocessors.pkl"
-            if os.path.exists(prep_cache):
-                import pickle
-                try:
-                    with open(prep_cache, 'rb') as f:
-                        prep = pickle.load(f)
-                        sc = prep.get('sc', sc)
-                        label_encoder = prep.get('label_encoder', label_encoder)
-                except Exception:
-                    pass
+        model_cols = None
+        prep_cache = "Dataset/model_preprocessors.pkl"
+        if os.path.exists(prep_cache):
+            import pickle
+            try:
+                with open(prep_cache, 'rb') as f:
+                    prep = pickle.load(f)
+                    if sc is None:
+                        sc = prep.get('sc')
+                    if len(label_encoder) == 0:
+                        label_encoder = prep.get('label_encoder', [])
+                    model_cols = prep.get('columns')
+            except Exception:
+                pass
                     
         if rf_cls is None or sc is None:
             context = {'data': '<font color="red"><b>Model is not trained yet! Please run Process Mining and Run ML Algorithms first.</b></font>'}
@@ -263,29 +266,66 @@ def DetectFraudAction(request):
             
         test_source = request.POST.get('test_source', 'upload')
         preset_map = {
-            'test_8': ('Dataset/testData.csv', 'Standard Test Dataset (8 Transactions)'),
+            'test_2': ('Dataset/test_2_transactions_combination.csv', 'Preset 2-Transaction Combination (1 Normal + 1 Fraud)'),
             'test_20': ('Dataset/test_sample_20_mixed.csv', 'Mixed Evaluation Batch (10 Normal + 10 Fraud)'),
+            'test_8': ('Dataset/testData.csv', 'Standard Test Dataset (8 Transactions)'),
             'test_fraud': ('Dataset/sample_single_fraud_transaction.csv', 'Single Known Fraud Transaction'),
             'test_normal': ('Dataset/sample_single_normal_transaction.csv', 'Single Known Normal Transaction'),
         }
         
-        if test_source in preset_map and os.path.exists(preset_map[test_source][0]):
+        if test_source == 'lookup_ids':
+            raw_ids = request.POST.get('transaction_ids', '').strip()
+            if not raw_ids:
+                return render(request, 'DetectFraud.html', {'data': 'Please enter one or two Transaction IDs (e.g. 3577537, 3577327).'})
+            import re
+            target_ids = [int(x) for x in re.findall(r'\d+', raw_ids)]
+            if not target_ids:
+                return render(request, 'DetectFraud.html', {'data': 'Invalid Transaction IDs provided.'})
+            
+            # Lookup from dataset
+            df_source = None
+            if os.path.exists("Dataset/train_transaction.pkl"):
+                df_source = pd.read_pickle("Dataset/train_transaction.pkl")
+            elif os.path.exists("Dataset/train_transaction.csv"):
+                df_source = pd.read_csv("Dataset/train_transaction.csv")
+            elif dataset is not None:
+                df_source = dataset
+            
+            if df_source is None:
+                return render(request, 'DetectFraud.html', {'data': 'Dataset not available to lookup Transaction IDs.'})
+            
+            test_df = df_source[df_source['TransactionID'].isin(target_ids)].copy()
+            if len(test_df) == 0:
+                return render(request, 'DetectFraud.html', {'data': f'Transaction IDs {target_ids} not found in the dataset.'})
+            source_label = f"Lookup Query: IDs {target_ids}"
+        elif test_source in preset_map and os.path.exists(preset_map[test_source][0]):
             test_file_path = preset_map[test_source][0]
             source_label = preset_map[test_source][1]
+            test_df = pd.read_csv(test_file_path)
         else:
             myfile = request.FILES.get('t1')
             if not myfile:
-                return render(request, 'DetectFraud.html', {'data': 'Please choose a preset test dataset or upload a file.'})
+                return render(request, 'DetectFraud.html', {'data': 'Please choose a preset test dataset, enter Transaction IDs, or upload a CSV file.'})
             os.makedirs("FraudApp/static", exist_ok=True)
             test_file_path = "FraudApp/static/test_uploaded.csv"
             with open(test_file_path, 'wb+') as dest:
                 for chunk in myfile.chunks():
                     dest.write(chunk)
             source_label = f"Uploaded File: {myfile.name}"
+            test_df = pd.read_csv(test_file_path)
         
-        test_df = pd.read_csv(test_file_path)
+        # Save display metadata before transformation
+        tx_ids = test_df['TransactionID'].tolist() if 'TransactionID' in test_df.columns else [f"Tx #{i+1}" for i in range(len(test_df))]
+        tx_amts = test_df['TransactionAmt'].tolist() if 'TransactionAmt' in test_df.columns else ["N/A"] * len(test_df)
+        prod_cds = test_df['ProductCD'].tolist() if 'ProductCD' in test_df.columns else ["N/A"] * len(test_df)
+        
+        # Clean and prepare features
         if 'isFraud' in test_df.columns:
             test_df.drop(['isFraud'], axis=1, inplace=True)
+            
+        if model_cols:
+            test_df = test_df.reindex(columns=model_cols, fill_value=0)
+            
         test_df = clean_df(test_df)
         temp = test_df.values
         
@@ -303,20 +343,43 @@ def DetectFraudAction(request):
         X_test = sc.transform(X_test)
         predict = rf_cls.predict(X_test)
         
+        # Calculate class probabilities if available
+        probs = None
+        if hasattr(rf_cls, "predict_proba"):
+            try:
+                probs = rf_cls.predict_proba(X_test)
+            except Exception:
+                probs = None
+        
         n_fraud = int(np.sum(predict == 1))
         n_normal = int(np.sum(predict == 0))
-        output = '<div style="margin-bottom:15px;"><h3>Fraud Detection Results from Test Data</h3>'
+        output = '<div style="margin-bottom:15px; background:#f8f9fa; border:1px solid #e2e8f0; border-radius:6px; padding:12px; text-align:left;">'
+        output += f'<h3 style="margin:0 0 6px 0; color:#2d3748;">Fraud Detection Results from Test Data</h3>'
         output += f'<b>Source:</b> {source_label} &nbsp;|&nbsp; '
-        output += f'<b>Total Transactions Tested:</b> {len(predict)} &nbsp;|&nbsp; '
-        output += f'<b>Normal:</b> <font color="green">{n_normal}</font> &nbsp;|&nbsp; '
-        output += f'<b>Fraudulent:</b> <font color="red">{n_fraud}</font></div>'
-        output += '<table border=1 align=center width=100%><tr><th width="80%"><font color="black">Test Transaction Features</font></th><th><font color="black">Detection Result</font></th></tr>'
+        output += f'<b>Total Evaluated:</b> {len(predict)} &nbsp;|&nbsp; '
+        output += f'<b>Normal:</b> <font color="green"><b>{n_normal}</b></font> &nbsp;|&nbsp; '
+        output += f'<b>Fraudulent:</b> <font color="red"><b>{n_fraud}</b></font></div>'
+        
+        output += '<table border=1 align=center width=100% style="border-collapse:collapse; text-align:center;">'
+        output += '<tr style="background:#edf2f7;"><th><font color="black">Transaction ID</font></th><th><font color="black">Amount ($)</font></th><th><font color="black">Product</font></th><th><font color="black">Fraud Risk Score</font></th><th><font color="black">Detection Result</font></th><th><font color="black">Details</font></th></tr>'
         for i in range(len(predict)):
+            fraud_prob_pct = f"{probs[i][1]*100:.1f}%" if probs is not None and len(probs[i]) > 1 else ("100%" if predict[i] == 1 else "0%")
             if predict[i] == 1:
-                pred_html = '<font color="red" size="3"><b>FRAUD</b></font>'
+                pred_html = '<span style="background:#fed7d7; color:#9b2c2c; padding:3px 10px; border-radius:4px; font-weight:bold;">FRAUD</span>'
+                risk_style = 'color:#c53030; font-weight:bold;'
             else:
-                pred_html = '<font color="green" size="3"><b>NORMAL</b></font>'
-            output += f'<tr><td><div style="max-height:80px; overflow-y:auto; word-break:break-all; font-family:monospace; font-size:11px;">{str(list(temp[i]))}</div></td><td align="center">{pred_html}</td></tr>'
+                pred_html = '<span style="background:#c6f6d5; color:#22543d; padding:3px 10px; border-radius:4px; font-weight:bold;">NORMAL</span>'
+                risk_style = 'color:#2f855a; font-weight:bold;'
+                
+            amt_val = f"${float(tx_amts[i]):.2f}" if isinstance(tx_amts[i], (int, float)) or str(tx_amts[i]).replace('.','',1).isdigit() else str(tx_amts[i])
+            output += f'<tr>'
+            output += f'<td style="padding:8px;"><b>{tx_ids[i]}</b></td>'
+            output += f'<td>{amt_val}</td>'
+            output += f'<td>{prod_cds[i]}</td>'
+            output += f'<td><span style="{risk_style}">{fraud_prob_pct}</span></td>'
+            output += f'<td>{pred_html}</td>'
+            output += f'<td><details style="cursor:pointer; font-size:11px; text-align:left;"><summary>View Vector</summary><div style="max-height:70px; overflow-y:auto; word-break:break-all; font-family:monospace; font-size:10px; background:#fff; padding:4px;">{str(list(temp[i]))}</div></details></td>'
+            output += f'</tr>'
         output += '</table><br/>'
         context = {'data': output}
         return render(request, 'UserScreen.html', context)

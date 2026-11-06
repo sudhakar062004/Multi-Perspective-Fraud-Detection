@@ -22,7 +22,7 @@
 <script language="javascript">
 	function validate(formObj)
 	{
-		var mode = "test_20";
+		var mode = "test_2";
 		for (var i = 0; i < formObj.test_source.length; i++) {
 			if (formObj.test_source[i].checked) {
 				mode = formObj.test_source[i].value;
@@ -35,10 +35,16 @@
 			formObj.t1.focus();
 			return false;
 		}
-		showLoader("Detecting Fraud in Test Data...", "Running trained Extension Random Forest classifier over test transactions... Please wait...");
+		if (mode === "lookup_ids" && (!formObj.transaction_ids.value || formObj.transaction_ids.value.trim().length == 0))
+		{
+			alert("Please enter Transaction IDs (e.g. 3577537, 3577327)");
+			formObj.transaction_ids.focus();
+			return false;
+		}
+		showLoader("Detecting Fraud in Transactions...", "Evaluating multi-perspective transaction behavioral features with trained model... Please wait...");
 		var btn = document.getElementById("submit_btn");
 		if (btn) {
-			btn.value = "⏳ Detecting... Please wait";
+			btn.value = "⏳ Evaluating... Please wait";
 			btn.disabled = true;
 		}
 		return true;
@@ -46,10 +52,16 @@
 	
 	function toggleSource(mode) {
 		var uploadRow = document.getElementById("upload_row");
+		var lookupRow = document.getElementById("lookup_row");
 		if (mode === "upload") {
 			uploadRow.style.display = "";
+			lookupRow.style.display = "none";
+		} else if (mode === "lookup_ids") {
+			uploadRow.style.display = "none";
+			lookupRow.style.display = "";
 		} else {
 			uploadRow.style.display = "none";
+			lookupRow.style.display = "none";
 		}
 	}
 	
@@ -99,14 +111,24 @@
    
 	<font size="" color="red"><center>{{ data }}</center></font>
 						
-	<table align="center" width="70%" style="border:1px solid #ccc; background:#fafafa; padding:18px; border-radius:8px; box-shadow: 0 2px 6px rgba(0,0,0,0.06);">
+	<table align="center" width="75%" style="border:1px solid #ccc; background:#fafafa; padding:18px; border-radius:8px; box-shadow: 0 2px 6px rgba(0,0,0,0.06);">
 		<tr>
-			<td width="30%" valign="top"><font size="3" color="black"><b>Select Test Data:</b></font></td>
+			<td width="28%" valign="top"><font size="3" color="black"><b>Select Test Mode:</b></font></td>
 			<td>
 				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px; background:#fff; padding:10px; border:1px solid #ddd; border-radius:5px;">
-					<input type="radio" name="test_source" value="test_20" checked onclick="toggleSource('test_20');">
-					<b style="color:#c80203; font-size:14px;">Recommended: Mixed Batch (20 Transactions: 10 Normal + 10 Fraud)</b><br/>
-					<span style="color:#666; font-size:12px; margin-left:22px;">&bull; Best for faculty demo to show detection of both Normal & Fraud cases (<i>Dataset/test_sample_20_mixed.csv</i>)</span>
+					<input type="radio" name="test_source" value="test_2" checked onclick="toggleSource('test_2');">
+					<b style="color:#c80203; font-size:14px;">⭐ 2-Transaction Combination (1 Normal + 1 Fraud)</b><br/>
+					<span style="color:#666; font-size:12px; margin-left:22px;">&bull; Best for faculty check: tests Transaction #3577537 (Normal) vs #3577327 (Fraud) (<i>Dataset/test_2_transactions_combination.csv</i>)</span>
+				</label>
+				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px; background:#fff; padding:10px; border:1px solid #ddd; border-radius:5px;">
+					<input type="radio" name="test_source" value="lookup_ids" onclick="toggleSource('lookup_ids');">
+					<b style="color:#1a365d; font-size:14px;">🔍 Enter Specific Transaction IDs to Test & Compare</b><br/>
+					<span style="color:#666; font-size:12px; margin-left:22px;">&bull; Type any transaction IDs (e.g. <code>3577537, 3577327</code>) to pull and test directly from the 590,540 dataset</span>
+				</label>
+				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px; background:#fff; padding:10px; border:1px solid #ddd; border-radius:5px;">
+					<input type="radio" name="test_source" value="test_20" onclick="toggleSource('test_20');">
+					<b style="font-size:14px;">Mixed Evaluation Batch (20 Transactions: 10 Normal + 10 Fraud)</b><br/>
+					<span style="color:#666; font-size:12px; margin-left:22px;">&bull; Multi-sample batch test file (<i>Dataset/test_sample_20_mixed.csv</i>)</span>
 				</label>
 				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px; background:#fff; padding:10px; border:1px solid #ddd; border-radius:5px;">
 					<input type="radio" name="test_source" value="test_8" onclick="toggleSource('test_8');">
@@ -126,8 +148,15 @@
 				<label style="cursor:pointer; display:block; margin:6px 0; font-size:13px; background:#fff; padding:10px; border:1px solid #ddd; border-radius:5px;">
 					<input type="radio" name="test_source" value="upload" onclick="toggleSource('upload');">
 					<b style="font-size:14px;">Upload Custom Test CSV File from Computer</b><br/>
-					<span style="color:#666; font-size:12px; margin-left:22px;">&bull; Select any CSV file from your computer (e.g. <i>Dataset/test_transaction.csv</i>)</span>
+					<span style="color:#666; font-size:12px; margin-left:22px;">&bull; Upload any CSV given by your faculty (even with 2 rows, automatically aligns columns)</span>
 				</label>
+			</td>
+		</tr>
+		<tr id="lookup_row" style="display:none;">
+			<td><font size="3" color="black"><b>Transaction IDs:</b></font></td>
+			<td>
+				<input type="text" name="transaction_ids" value="3577537, 3577327" style="padding:8px; width:70%; border:1px solid #ccc; border-radius:4px; font-size:13px;" placeholder="e.g. 3577537, 3577327">
+				<div style="font-size:12px; color:#666; margin-top:4px;">Enter two or more Transaction IDs separated by commas</div>
 			</td>
 		</tr>
 		<tr id="upload_row" style="display:none;">
